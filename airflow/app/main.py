@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 from database import get_db, init_db, Base, engine
 from models import ClothingItem, PriceHistory
+from metrics import CrawlerMetrics
 
 load_dotenv()
 
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 class PatanjamehScraper:
     def __init__(self):
         self.base_url = os.getenv('BASE_URL', 'https://patanjameh.ir')
+        self.metrics = CrawlerMetrics()
         self.categories = [
             f"{self.base_url}/search/group-men-shirt",
             f"{self.base_url}/search/group-women-manto"
@@ -111,8 +113,10 @@ class PatanjamehScraper:
             
             html = await self.fetch_html(url)
             if not html:
+                self.metrics.record_error()
                 break
-            
+
+            self.metrics.record_page_crawled()
             soup = BeautifulSoup(html, 'html.parser')
             product_divs = soup.find_all('div', class_='sep-vit-item')
             
@@ -124,6 +128,11 @@ class PatanjamehScraper:
                 product_data = self.extract_product_data(product_div)
                 if product_data:
                     products.append(product_data)
+                    self.metrics.record_product_scraped()
+                else:
+                    self.metrics.record_error()
+
+    
 
             pagination = soup.find('ul', class_='pagination')
             if not pagination or not pagination.find('a', class_='page-link', string='›'):
@@ -133,6 +142,21 @@ class PatanjamehScraper:
             
         logger.info(f"Found {len(products)} products in category {category_url}")
         return products
+    
+    async def run(self):
+        await self.init_session()
+        try:
+            start_time = self.metrics.start_scrape()
+            db = next(get_db())
+            for category_url in self.categories:
+                logger.info(f"Processing category: {category_url}")
+                products = await self.fetch_products(category_url)
+                if products:
+                    self.save_to_database(products, db)
+            self.metrics.end_scrape(start_time)
+            self.metrics.push_metrics()  # Push metrics after completion
+        finally:
+            await self.close_session()
 
     def save_to_database(self, products: List[Dict], db: Session):
         try:
