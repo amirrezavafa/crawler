@@ -1,5 +1,19 @@
-version: '3'
+version: '3.8'
 services:
+
+  crawler:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/crawler
+    environment:
+      - PYTHONPATH=/crawler
+    networks:
+      - app-network
+
+  
+
   web:
     build: .
     depends_on:
@@ -37,10 +51,10 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus:/etc/prometheus
+      - "./airflow/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
       - prometheus_data:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--config.file=airflow/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'

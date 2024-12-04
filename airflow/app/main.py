@@ -6,11 +6,15 @@ from typing import List, Dict
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
-from database import get_db, init_db, Base, engine
-from models import ClothingItem, PriceHistory
-from metrics import CrawlerMetrics
+from .database import get_db, init_db, Base, engine
+from .models import ClothingItem, PriceHistory
+from .metrics import CrawlerMetrics
+import sentry_sdk  
+from .sentry_config import init_sentry, add_sentry_context
+from datetime import datetime
 
 load_dotenv()
+init_sentry()
 
 logging_level = os.getenv('LOG_LEVEL', 'INFO')
 logging.basicConfig(level=logging_level)
@@ -216,11 +220,22 @@ async def reset_db():
     logger.info("Database reset complete!")
 
 async def main():
-    logger.info("Starting the scraper...")
-    await reset_db() 
-    init_db()
-    scraper = PatanjamehScraper()
-    await scraper.run()
+    try:
+        # Add context for this specific crawl run
+        add_sentry_context({
+            "crawler_start_time": datetime.now().isoformat()
+        })
+
+        logger.info("Starting the scraper...")
+        await reset_db() 
+        init_db()
+        scraper = PatanjamehScraper()
+        await scraper.run()
+    except Exception as e:
+        # Capture any unhandled exceptions
+        sentry_sdk.capture_exception(e)
+        logger.error(f"Unhandled exception in main: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
